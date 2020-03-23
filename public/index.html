@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Welcome to nginx!</title>
+		<style>
+			body {
+				width: 35em;
+				margin: 0 auto;
+				font-family: Tahoma, Verdana, Arial, sans-serif;
+			}
+		</style>
+		<script src="key.js"></script>
+		<script>
+			const API_BUFFER = ((base64String) => {
+				const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+				const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
+				const rawData = window.atob(base64);
+				const outputArray = new Uint8Array(rawData.length);
+				for (var i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+				return outputArray;
+			})(API_KEY);
+
+			function Throw(error) {
+				setTimeout(() => { throw error; });
+			}
+
+			window.addEventListener("DOMContentLoaded", async () => {
+				const initialListener = document.querySelector('#scribe').addEventListener('click', scribe,
+					{ once: true, passive: true, capture: false });
+				document.querySelector('#scribe').removeAttribute('disabled');
+				await view_update();
+				message("準備完了");
+				document.querySelector('#scribe').removeEventListener('click', initialListener);
+			}, {once: true, passive: true, capture: false});
+
+
+
+			async function view_update() {
+				if (!('serviceWorker' in navigator)) {
+					document.querySelector('#status').textContent = '購読に対応してません。';
+					document.querySelector('#scribe').addAttribute('disabled', true);
+					document.querySelector('#unscribe').addAttribute('disabled', true);
+					
+					return;
+				}
+				const subscription = await navigator.serviceWorker.ready
+					.then(register => register.pushManager.getSubscription())
+					.catch(Throw);
+
+				if (subscription) {
+					const id = subscription.endpoint.match(/\/([^\/]*?)\:/)[1];
+					document.querySelector('#status').textContent = `購読は登録済みです。ID: ${id}`;
+					
+					document.querySelector('#unscribe').addEventListener('click', async () => {
+						message('購読の解除を行います。');
+						const result = await subscription.unsubscribe();
+						message(`購読を${result ? '解除' : '解除に失敗' }しました。`);
+
+						view_update();
+
+						fetch('/api/unscribe', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({ id }),
+						});
+					}, {once: true, passive: true, capture: false});
+					document.querySelector('#unscribe').removeAttribute('disabled');
+					document.querySelector('#scribe').setAttribute('disabled', true);
+				} else {
+					document.querySelector('#status').textContent = `購読は解除されています。`;
+
+					document.querySelector('#scribe').addEventListener('click', scribe, {
+						once: true, passive: true, capture: false});
+					document.querySelector('#scribe').removeAttribute('disabled');
+					document.querySelector('#unscribe').setAttribute('disabled', true);
+				}
+			}
+
+			async function scribe () {
+				message('購読を登録します。');
+                                const method = 'POST';
+                                const headers = { "Content-Type": "application/json" };
+                                const body = await navigator.serviceWorker
+                                                   .register("/service-worker.js")
+                                                   .then(register => register.pushManager.subscribe({
+                                                           userVisibleOnly: true,
+                                                           applicationServerKey: API_BUFFER,
+                                                   })).then(result => JSON.stringify(result))
+                                                   .then(body => fetch("/api/subscribe", { method, body, headers }))
+                                                   .then(res => res.json())
+                                                   .then(json => message(`購読の登録に${json.success ? '成功' : '失敗'}しました。`))
+                                                   .catch(err => {
+                                                           message(`購読処理に失敗しました。: ${err}`);
+                                                           Throw(err);
+                                                   });
+
+                                view_update();
+			}
+
+			function message(text) {
+				const m = document.querySelector('#message');
+				m.textContent = `[${
+					new Date().toISOString().substring(5,22).replace('T', ' ')
+				}] ${text}\n${m.textContent}`;
+			}
+		</script>
+	</head>
+	<body>
+		<h1>Push通知購読</h1>
+		<p id="status"></p>
+		<!-- button onclick="javascript: setNotification();">
+			通知をONにする
+		</button -->
+		<button id="scribe" disabled>購読する</button>
+		<button id="unscribe" disabled>購読解除</button>
+		<pre id="message"></pre>
+	</body>
+</html>
